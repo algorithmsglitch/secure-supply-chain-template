@@ -18,7 +18,7 @@ COPY src ./src
 FROM node:18-alpine
 
 # Set labels for SBOM and provenance tracking
-LABEL org.opencontainers.image.source="https://github.com/Algorithmsglitch/secure-supply-chain-template"
+LABEL org.opencontainers.image.source="https://github.com/algorithmsglitch/secure-supply-chain-template"
 LABEL org.opencontainers.image.description="Secure demo application with supply chain attestation"
 LABEL org.opencontainers.image.title="Secure App Demo"
 
@@ -35,10 +35,6 @@ COPY --from=builder --chown=app:nodejs /app/src ./src
 
 # Switch to non-root user
 USER app
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD node -e "require('http').get('http://localhost:3000/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
 
 # Expose port (non-privileged)
 EXPOSE 3000
