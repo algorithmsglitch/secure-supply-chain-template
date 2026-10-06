@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+npm-debug.log*
+audit-report.json
+sbom.*.json*
+sbom.*.json.sig
+reports/
+.DS_Store
+.vscode/
+dependency-check-report.json
+trivy-results.sarif
+attestation.json
+licenses.json

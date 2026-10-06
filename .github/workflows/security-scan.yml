@@ -1,0 +1,121 @@
+name: Security Scan - Dependency Check
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/security-scan.yml'
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 2 * * *'
+
+jobs:
+  dependency-check:
+    name: Scan Dependencies for Vulnerabilities
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+      security-events: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci --frozen-lockfile
+
+      - name: Run npm audit
+        id: npm-audit
+        continue-on-error: true
+        run: |
+          npm audit --json > audit-report.json || true
+          npm audit --audit-level=moderate
+
+      - name: Run OWASP Dependency-Check
+        uses: dependency-check/Dependency-Check_Action@main
+        id: owasp
+        with:
+          project: 'Secure App Demo'
+          path: '.'
+          format: 'JSON'
+          args: >
+            --scan .
+            --exclude node_modules
+            --exclude .git
+            --enableExperimental
+
+      - name: Upload Dependency-Check Results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: dependency-check-report
+          path: |
+            reports/dependency-check-report.json
+            audit-report.json
+          retention-days: 30
+
+      - name: Parse & Comment PR with Vulnerabilities
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            let auditData = {};
+            try {
+              auditData = JSON.parse(fs.readFileSync('audit-report.json', 'utf8'));
+            } catch (e) {
+              console.log('No audit report found');
+            }
+
+            const vulnerabilities = auditData.vulnerabilities || {};
+            const criticalCount = Object.values(vulnerabilities)
+              .filter(v => v.severity === 'critical').length;
+            const highCount = Object.values(vulnerabilities)
+              .filter(v => v.severity === 'high').length;
+
+            let comment = '## 🔍 Security Scan Results\n\n';
+            
+            if (criticalCount === 0 && highCount === 0) {
+              comment += '✅ No critical or high severity vulnerabilities found.\n';
+            } else {
+              comment += `⚠️ Found **${criticalCount}** critical and **${highCount}** high severity vulnerabilities.\n\n`;
+              comment += '**Action Required:** Review and fix vulnerabilities before merging.\n\n';
+            }
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+      - name: Fail if Critical Vulnerabilities Found
+        if: always()
+        run: |
+          if npm audit | grep -q 'critical\|high'; then
+            echo "❌ High or critical vulnerabilities detected. Review audit-report.json"
+            exit 1
+          fi
+
+      - name: Generate SBOM (Software Bill of Materials)
+        run: |
+          npm sbom --output sbom.cyclonedx.json --format cyclonedx
+
+      - name: Upload SBOM Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: sbom
+          path: sbom.cyclonedx.json
+          retention-days: 90
